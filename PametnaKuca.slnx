@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="Client/Client.csproj" Id="5e69e942-02dc-473c-910c-1b92539a9da8" />
   <Project Path="Server/Server.csproj" Id="a31f3351-b903-4311-8361-cd8443955eac" />
+  <Project Path="Svetla/Svetla.csproj" Id="5b11e5bc-a37f-4586-a184-c1684da0ec99" />
 </Solution>
