@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -28,7 +29,12 @@ namespace Server
 
         };
 
-        private static readonly List<Uredjaj> ListaUredjaja = new List<Uredjaj>();
+        private static readonly List<Uredjaj> ListaUredjaja = new List<Uredjaj>()
+        {
+            new Uredjaj("Svetla",10001,new Dictionary<string,string>{{"power","OFF"}, {"intenzitet","70"}, {"boja","bela"} }),
+            new Uredjaj("Klima",10002, new Dictionary<string, string>{{"power","OFF"}, { "mode", "grejanje"}, { "temp", "22"} }),
+            new Uredjaj("Kapija",10003, new Dictionary<string, string>{{"otvorena","ne"}}),
+        };
 
         static void Main(string[] args)
         {
@@ -47,6 +53,9 @@ namespace Server
                 Console.WriteLine($"Server slusa na portu {TCPPort}...");
 
                 Socket acceptedSocket = serverSocket.Accept();
+                
+
+                
 
                 Console.WriteLine("Klijent povezan " + acceptedSocket.RemoteEndPoint);
 
@@ -100,6 +109,9 @@ namespace Server
                 SendLineTcp(acceptedSocket, $"OK {ulogovanKorisnik.Ime} {ulogovanKorisnik.Prezime} UDPPORT {sessionUdpPort}");
                 Console.WriteLine($"[LOGIN] OK: {ulogovanKorisnik.KorisnickoIme}, dodeljen UDP port {sessionUdpPort}");
 
+                ispisListeUredjaja(ListaUredjaja, acceptedSocket);
+                Console.WriteLine("[ISPIS] Ispisana lista dostupnih uredjaja korisniku");
+
                 
 
 
@@ -152,6 +164,28 @@ namespace Server
                 }
             }
             throw new Exception("Nema slobodnih UDP portova u opsegu.");
+        }
+
+        private static void ispisListeUredjaja(List<Uredjaj> listaZaIspis,Socket accSocket)
+        {
+            int i = 1;
+            SendLineTcp(accSocket,"Lista uredjaja:\n");
+            foreach(Uredjaj u in listaZaIspis)
+            {
+                string ispis = String.Empty;
+
+                ispis = i+ ")" + " " + u.ImeUredjaja + " " + u.Port + " ";
+                foreach(var par in u.Funkcije)
+                {
+                    ispis = ispis + par.Key + ":" + par.Value + " ";
+                }
+                SendLineTcp(accSocket, ispis);
+                i++;
+            }
+
+            SendLineTcp(accSocket, "Kraj liste uredjaja.\n");
+
+
         }
     }
 

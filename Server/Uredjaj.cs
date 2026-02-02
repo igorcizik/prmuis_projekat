@@ -22,9 +22,13 @@ namespace Server
             this.ImeUredjaja = imeUredjaja;
             this.Port = port;
             this.Funkcije = pocetnoStanje;
-            this.PoslednjaPromena= DateTime.Now;   
+             
         }
 
+        public override string ToString()
+        {
+            return ImeUredjaja + " " + Port + " " + Funkcije;
         }
+    }
     }      
 
