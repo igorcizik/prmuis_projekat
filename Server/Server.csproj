@@ -46,6 +46,7 @@
     <Compile Include="Korisnik.cs" />
     <Compile Include="Server.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Uredjaj.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
