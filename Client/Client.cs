@@ -67,6 +67,7 @@ namespace Client
                         string pass = Console.ReadLine();
                         SendLineTcp(clientSocket, pass);
                     }
+                    
 
                 }
             }

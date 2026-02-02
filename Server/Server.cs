@@ -29,7 +29,7 @@ namespace Server
 
         };
 
-        private static readonly List<Uredjaj> ListaUredjaja = new List<Uredjaj>()
+        private static List<Uredjaj> ListaUredjaja = new List<Uredjaj>()
         {
             new Uredjaj("Svetla",10001,new Dictionary<string,string>{{"power","OFF"}, {"intenzitet","70"}, {"boja","bela"} }),
             new Uredjaj("Klima",10002, new Dictionary<string, string>{{"power","OFF"}, { "mode", "grejanje"}, { "temp", "22"} }),
@@ -112,6 +112,42 @@ namespace Server
                 ispisListeUredjaja(ListaUredjaja, acceptedSocket);
                 Console.WriteLine("[ISPIS] Ispisana lista dostupnih uredjaja korisniku");
 
+                SendLineTcp(acceptedSocket, "Dostupno slanje komandi (unesi kraj za izlaz)\n");
+                while (true)
+                {
+                    string komanda = ReceiveLineTcp(acceptedSocket);
+
+                    if (komanda == null)
+                        break;
+                    string[] delovi = komanda.Split(' ');
+
+                    string imeUredjaja = delovi[0]; 
+
+                    
+                    string[] fv = delovi[1].Split(':');
+
+                    string funkcija = fv[0]; 
+                    string vrednost = fv[1];
+                    if(komanda == "kraj")
+                    {
+                        Console.ReadKey();
+                        return;
+                    }
+
+                    foreach(var u in ListaUredjaja)
+                    {
+                        if(u.Funkcije.ContainsKey(funkcija))
+                        {
+                            u.Funkcije[funkcija] = vrednost;
+                        }
+                        else
+                        {
+                            SendLineTcp(acceptedSocket, "Ne postoji takva komanda");
+                        }
+                    }
+                    
+                }
+
                 
 
 
@@ -183,7 +219,7 @@ namespace Server
                 i++;
             }
 
-            SendLineTcp(accSocket, "Kraj liste uredjaja.\n");
+            SendLineTcp(accSocket, "\nKraj liste uredjaja.\n");
 
 
         }
