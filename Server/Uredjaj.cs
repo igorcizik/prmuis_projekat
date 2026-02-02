@@ -11,27 +11,19 @@ namespace Server
 
         public string ImeUredjaja { get; set; }
         public int Port { get; set; }
-        public Dictionary<string, int> Funkcije { get; set; }
+        public Dictionary<string, string> Funkcije { get; set; }
 
+        public DateTime PoslednjaPromena { get; set; }
 
-        public Uredjaj() { this.Funkcije = new Dictionary<string, int>(); }
-
-        public Uredjaj(string imeUredjaja, int port)
-        {
-            this.Funkcije = new Dictionary<string, int>();
+        public Uredjaj() { this.Funkcije = new Dictionary<string, string>(); }
+       
+        public Uredjaj(string imeUredjaja, int port, Dictionary<string,string> pocetnoStanje)
+        {;
             this.ImeUredjaja = imeUredjaja;
             this.Port = port;
-            
+            this.Funkcije = pocetnoStanje;
+            this.PoslednjaPromena= DateTime.Now;   
         }
-
-        public void dodajFunkciju(string funkcija)
-        {
-            if (!Funkcije.ContainsKey(funkcija))
-            {
-                Funkcije[funkcija] = 0;
-            }
-        }
-     
 
         }
     }      
