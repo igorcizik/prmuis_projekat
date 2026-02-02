@@ -4,10 +4,10 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{5B11E5BC-A37F-4586-A184-C1684DA0EC99}</ProjectGuid>
+    <ProjectGuid>{D3BDB915-ECDF-4957-82EF-20349E3CF16E}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>Svetla</RootNamespace>
-    <AssemblyName>Svetla</AssemblyName>
+    <RootNamespace>Kapija</RootNamespace>
+    <AssemblyName>Kapija</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
@@ -43,7 +43,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Svetla.cs" />
+    <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -28,6 +28,8 @@ namespace Server
 
         };
 
+        private static readonly List<Uredjaj> ListaUredjaja = new List<Uredjaj>();
+
         static void Main(string[] args)
         {
 
