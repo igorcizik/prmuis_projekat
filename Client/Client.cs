@@ -38,6 +38,9 @@ namespace Client
                     if (serverLine == null)
                     {
                         Console.WriteLine("Server je zatvorio konekciju.");
+                        Console.WriteLine("Pritisni taster za izlaz...");
+                        Console.ReadKey();
+
                         return;
                     }
 
@@ -46,6 +49,9 @@ namespace Client
                     if (serverLine.StartsWith("ERR", StringComparison.OrdinalIgnoreCase))
                     {
                         Console.WriteLine("Login neuspesan. Klijent zavrsava.");
+                        Console.WriteLine("Pritisni taster za izlaz...");
+                        Console.ReadKey();
+
                         return;
                     }
 
@@ -66,14 +72,23 @@ namespace Client
             }
             catch (SocketException ex)
             {
+                Console.WriteLine("Pritisni taster za izlaz...");
+                Console.ReadKey();
+
                 Console.WriteLine("Socket greska: " + ex.Message);
             }
             catch (Exception ex)
             {
+                Console.WriteLine("Pritisni taster za izlaz...");
+                Console.ReadKey();
+
                 Console.WriteLine("Greska: " + ex);
             }
+            Console.WriteLine("Pritisni taster za izlaz...");
+            Console.ReadKey();
+
         }
-          private static void SendLineTcp(Socket socket, string message)
+        private static void SendLineTcp(Socket socket, string message)
         {
             byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
             socket.Send(data);
