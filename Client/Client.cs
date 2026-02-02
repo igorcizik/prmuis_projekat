@@ -13,55 +13,93 @@ namespace Client
         static void Main(string[] args)
         {
 
-          
-            Socket clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
-            IPEndPoint serverEP = new IPEndPoint(IPAddress.Loopback, 9000);
-            byte[] buffer = new byte[1024];
 
-            Console.WriteLine("Klijent je spreman za povezivanje sa serverom, kliknite enter");
-            Console.ReadKey();
-            clientSocket.Connect(serverEP);
-            Console.WriteLine("Klijent je uspesno povezan sa serverom!");
-          
-            while (true)
+            Socket clientSocket = null;
+            
+
+            try
             {
-               
-                try
+                clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                IPEndPoint serverEP = new IPEndPoint(IPAddress.Loopback, 9000);
+
+                Console.WriteLine("Klijent je spreman za povezivanje sa serverom. Pritisni ENTER...");
+                Console.ReadLine();
+
+                clientSocket.Connect(serverEP);
+                Console.WriteLine("Klijent je uspesno povezan sa serverom!");
+
+
+                
+
+                while (true)
                 {
-                    string poruka = Console.ReadLine();
-                    int brBajta = clientSocket.Send(Encoding.UTF8.GetBytes(poruka));
-
-                    if (poruka == "kraj")
-                        break;
-
-                    brBajta = clientSocket.Receive(buffer);
-
-                    if (brBajta == 0)
+                    string serverLine = ReceiveLineTcp(clientSocket);
+                    if (serverLine == null)
                     {
-                        Console.WriteLine("Server je zavrsio sa radom");
-                        break;
+                        Console.WriteLine("Server je zatvorio konekciju.");
+                        return;
                     }
 
-                    string odgovor = Encoding.UTF8.GetString(buffer);
+                    Console.WriteLine(serverLine);
 
-                    Console.WriteLine(odgovor);
-                    if (odgovor == "kraj")
-                        break;
+                    if (serverLine.StartsWith("ERR", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine("Login neuspesan. Klijent zavrsava.");
+                        return;
+                    }
+
+                    if (serverLine.Trim().Equals("Username:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        
+                        string username = Console.ReadLine();
+                        SendLineTcp(clientSocket, username);
+                    }
+                    else if (serverLine.Trim().Equals("Sifra:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        
+                        string pass = Console.ReadLine();
+                        SendLineTcp(clientSocket, pass);
+                    }
 
                 }
-                catch (SocketException ex)
-                {
-                    Console.WriteLine($"Doslo je do greske tokom slanja:\n{ex}");
-                    break;
-                }
-
             }
-            
-            Console.WriteLine("Klijent zavrsava sa radom");
-            Console.ReadKey();
-            clientSocket.Close();
-           
+            catch (SocketException ex)
+            {
+                Console.WriteLine("Socket greska: " + ex.Message);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Greska: " + ex);
+            }
+        }
+          private static void SendLineTcp(Socket socket, string message)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
+            socket.Send(data);
+        }
+
+        private static string ReceiveLineTcp(Socket socket)
+        {
+            StringBuilder sb = new StringBuilder();
+            byte[] buffer = new byte[1];
+
+            while (true)
+            {
+                int bytesRead = socket.Receive(buffer);
+                if (bytesRead == 0)
+                    return null;
+
+                char c = (char)buffer[0];
+
+                if (c == '\n')
+                    break;
+
+                if (c != '\r')
+                    sb.Append(c);
+            }
+
+            return sb.ToString();
         }
     }
 }
