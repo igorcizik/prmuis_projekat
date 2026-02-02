@@ -8,14 +8,15 @@ using System.Threading.Tasks;
 
 namespace Client
 {
-    internal class Program
+    internal class Client
     {
         static void Main(string[] args)
         {
+
           
             Socket clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
-            IPEndPoint serverEP = new IPEndPoint(IPAddress.Loopback, 50001);
+            IPEndPoint serverEP = new IPEndPoint(IPAddress.Loopback, 9000);
             byte[] buffer = new byte[1024];
 
             Console.WriteLine("Klijent je spreman za povezivanje sa serverom, kliknite enter");
@@ -25,7 +26,7 @@ namespace Client
           
             while (true)
             {
-                Console.WriteLine("Unesite poruku");
+               
                 try
                 {
                     string poruka = Console.ReadLine();
