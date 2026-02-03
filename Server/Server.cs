@@ -112,9 +112,10 @@ namespace Server
                 ispisListeUredjaja(ListaUredjaja, acceptedSocket);
                 Console.WriteLine("[ISPIS] Ispisana lista dostupnih uredjaja korisniku");
 
-                SendLineTcp(acceptedSocket, "Dostupno slanje komandi (unesi kraj za izlaz)\n");
+               
                 while (true)
                 {
+                    SendLineTcp(acceptedSocket, "Dostupno slanje komandi (unesi kraj za izlaz)");
                     string komanda = ReceiveLineTcp(acceptedSocket);
                    // Console.WriteLine($"{komanda}");
 
@@ -162,8 +163,29 @@ namespace Server
                             {
                                 u.Funkcije[funkcija] = vrednost;
 
-                                SendLineTcp(acceptedSocket,
-                                    $"{imeUredjaja} {funkcija} postavljeno na {vrednost}");
+                                
+                                IPEndPoint deviceEP = new IPEndPoint(IPAddress.Loopback, u.Port);
+
+                                string udpMsg = funkcija + ":" + vrednost;
+                                byte[] data = Encoding.UTF8.GetBytes(udpMsg);
+
+                                udpSocket.Send(data, data.Length, deviceEP);
+
+                                
+                                try
+                                {
+                                    IPEndPoint from = null;
+                                    byte[] resp = udpSocket.Receive(ref from);
+                                    string respText = Encoding.UTF8.GetString(resp);
+
+                                    
+                                    SendLineTcp(acceptedSocket, "ACK " + respText);
+                                }
+                                catch (SocketException)
+                                {
+                                    SendLineTcp(acceptedSocket, "ACK TIMEOUT (uredjaj ne odgovara)");
+                                }
+
                             }
                             else
                             {
