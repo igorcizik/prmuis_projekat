@@ -2,28 +2,25 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 
-
-namespace Svetla
+namespace Klima
 {
-    class Svetla
+    internal class Program
     {
-
         static string power = "OFF";
-        static string intenzitet = "70";
-        static string boja = "bela";
+        static string mode = "grejanje";
+        static string temp = "22";
 
         static void Main(string[] args)
         {
-            int PortUredjaja = 10001;
+            int PortUredjaja = 10002;
 
             UdpClient udpKlijent = new UdpClient(PortUredjaja);
 
-            Console.WriteLine("Uredjaj svetla pokrenut");
+            Console.WriteLine("Uredjaj klima pokrenut");
             Console.WriteLine("Slusam na UDP portu: " + PortUredjaja);
 
             while (true)
@@ -47,7 +44,7 @@ namespace Svetla
 
         private static string ObradiKomandu(string komanda)
         {
-            
+
 
             string[] delovi = komanda.Split(':');
 
@@ -63,21 +60,20 @@ namespace Svetla
             {
                 case "power":
                     power = vrednost;
-                    return "Svetla: power "+power;
+                    return "Klima: power "+power;
 
-                case "intenzitet":
-                    intenzitet = vrednost;
-                    return "Svetla: promena intenziteta na " + intenzitet + "%";
+                case "mode":
+                    mode = vrednost;
+                    return "Klima: mod promenjen u " + mode;
 
-                case "boja":
-                    boja = vrednost;
-                    return "Svetla: boja promenjena u " + boja;
+                case "temp":
+                    temp = vrednost;
+                    return "Klima: temperatura postavljena na " + temp + "°C";
 
                 default:
-                    return "Svetla : nepostojeca funkcija";
+                    return "ERROR nepostojeca funkcija";
             }
 
         }
     }
 }
-    

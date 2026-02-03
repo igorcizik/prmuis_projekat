@@ -2,28 +2,23 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 
-
-namespace Svetla
+namespace Kapija
 {
-    class Svetla
+    
+    internal class Kapija
     {
-
-        static string power = "OFF";
-        static string intenzitet = "70";
-        static string boja = "bela";
-
+        static string otvorena = "ne";
         static void Main(string[] args)
         {
-            int PortUredjaja = 10001;
+            int PortUredjaja = 10003;
 
             UdpClient udpKlijent = new UdpClient(PortUredjaja);
 
-            Console.WriteLine("Uredjaj svetla pokrenut");
+            Console.WriteLine("Uredjaj kapija pokrenut");
             Console.WriteLine("Slusam na UDP portu: " + PortUredjaja);
 
             while (true)
@@ -47,7 +42,7 @@ namespace Svetla
 
         private static string ObradiKomandu(string komanda)
         {
-            
+
 
             string[] delovi = komanda.Split(':');
 
@@ -61,23 +56,14 @@ namespace Svetla
 
             switch (funkcija)
             {
-                case "power":
-                    power = vrednost;
-                    return "Svetla: power "+power;
-
-                case "intenzitet":
-                    intenzitet = vrednost;
-                    return "Svetla: promena intenziteta na " + intenzitet + "%";
-
-                case "boja":
-                    boja = vrednost;
-                    return "Svetla: boja promenjena u " + boja;
+                case "otvorena":
+                    otvorena = vrednost;
+                    return "Kapija: otvorena: " + vrednost;
 
                 default:
-                    return "Svetla : nepostojeca funkcija";
+                    return "ERROR nepostojeca funkcija";
             }
 
         }
     }
 }
-    
