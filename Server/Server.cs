@@ -116,36 +116,72 @@ namespace Server
                 while (true)
                 {
                     string komanda = ReceiveLineTcp(acceptedSocket);
+                   // Console.WriteLine($"{komanda}");
 
                     if (komanda == null)
                         break;
+
+                    if (komanda == "kraj")
+                    {
+                        Console.ReadKey();
+                        return;
+                    }
+
                     string[] delovi = komanda.Split(' ');
+
+                    if (delovi.Length != 2)
+                    {
+                        SendLineTcp(acceptedSocket, "Pogresan format komande");
+                        continue;
+                    }
 
                     string imeUredjaja = delovi[0]; 
 
                     
                     string[] fv = delovi[1].Split(':');
 
-                    string funkcija = fv[0]; 
-                    string vrednost = fv[1];
-                    if(komanda == "kraj")
+                    if (fv.Length != 2)
                     {
-                        Console.ReadKey();
-                        return;
+                        SendLineTcp(acceptedSocket, "Pogresan format funkcije");
+                        continue;
                     }
 
-                    foreach(var u in ListaUredjaja)
+                    string funkcija = fv[0]; 
+                    string vrednost = fv[1];
+
+
+                    bool uredjajPronadjen = false;
+
+                    foreach (var u in ListaUredjaja)
                     {
-                        if(u.Funkcije.ContainsKey(funkcija))
+                        if (u.ImeUredjaja.Equals(imeUredjaja, StringComparison.OrdinalIgnoreCase))
                         {
-                            u.Funkcije[funkcija] = vrednost;
-                        }
-                        else
-                        {
-                            SendLineTcp(acceptedSocket, "Ne postoji takva komanda");
+                            uredjajPronadjen = true;
+
+                            if (u.Funkcije.ContainsKey(funkcija))
+                            {
+                                u.Funkcije[funkcija] = vrednost;
+
+                                SendLineTcp(acceptedSocket,
+                                    $"{imeUredjaja} {funkcija} postavljeno na {vrednost}");
+                            }
+                            else
+                            {
+                                SendLineTcp(acceptedSocket,
+                                    $"Uredjaj nema funkciju: {funkcija}");
+                            }
+
+                            break; 
                         }
                     }
-                    
+
+                    if (!uredjajPronadjen)
+                    {
+                        SendLineTcp(acceptedSocket, "Nepostojeci uredjaj");
+                    }
+
+                    ispisListeUredjaja(ListaUredjaja, acceptedSocket);
+
                 }
 
                 

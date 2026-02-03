@@ -67,7 +67,13 @@ namespace Client
                         string pass = Console.ReadLine();
                         SendLineTcp(clientSocket, pass);
                     }
-                    
+
+                    if (serverLine.Trim().Equals("Dostupno slanje komandi (unesi kraj za izlaz)", StringComparison.OrdinalIgnoreCase))
+                    {
+
+                        string komanda = Console.ReadLine();
+                        SendLineTcp(clientSocket,komanda);
+                    }
 
                 }
             }
