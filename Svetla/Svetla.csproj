@@ -4,7 +4,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{5B11E5BC-A37F-4586-A184-C1684DA0EC99}</ProjectGuid>
+    <ProjectGuid>{5CC3DD6B-4749-44C4-9481-6AAC341D2F48}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <RootNamespace>Svetla</RootNamespace>
     <AssemblyName>Svetla</AssemblyName>

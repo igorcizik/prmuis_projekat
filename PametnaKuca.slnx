@@ -3,5 +3,5 @@
   <Project Path="Kapija/Kapija.csproj" Id="d3bdb915-ecdf-4957-82ef-20349e3cf16e" />
   <Project Path="Klima/Klima.csproj" Id="69310dca-3e18-46d8-90e6-871870c6d9c1" />
   <Project Path="Server/Server.csproj" Id="a31f3351-b903-4311-8361-cd8443955eac" />
-  <Project Path="Svetla/Svetla.csproj" Id="5b11e5bc-a37f-4586-a184-c1684da0ec99" />
+  <Project Path="Svetla/Svetla.csproj" Id="5cc3dd6b-4749-44c4-9481-6aac341d2f48" />
 </Solution>
