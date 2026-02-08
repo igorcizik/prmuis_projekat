@@ -20,7 +20,7 @@ namespace Kapija
 
             udpSocket.Bind(new IPEndPoint(IPAddress.Any, PortUredjaja));
 
-            Console.WriteLine("Uredjaj svetla pokrenut");
+            Console.WriteLine("Uredjaj kapija pokrenut");
             Console.WriteLine("Slusam na UDP portu: " + PortUredjaja);
 
             byte[] buffer = new byte[1024];

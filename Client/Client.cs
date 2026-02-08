@@ -9,114 +9,179 @@ namespace Client
     {
         static void Main(string[] args)
         {
-            Socket clientSocket = null;
+            const int tcpPort = 9000;
+            IPAddress serverIp = IPAddress.Loopback;
 
-            Socket udpSock = null;
-            EndPoint serverUdpEP = null;
-            bool usingUdp = false;
+            Console.WriteLine("Klijent je spreman. Pritisni ENTER da krenes...");
+            Console.ReadLine();
 
-            try
+            while (true) // auto-relogin loop
             {
-                clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                IPEndPoint serverEP = new IPEndPoint(IPAddress.Loopback, 9000);
+                Socket clientSocket = null;
+                Socket udpSock = null;
+                EndPoint serverUdpEP = null;
 
-                Console.WriteLine("Klijent je spreman za povezivanje sa serverom. Pritisni ENTER...");
-                Console.ReadLine();
+                bool usingUdp = false;
+                bool reloginNeeded = false;
 
-                clientSocket.Connect(serverEP);
-                Console.WriteLine("Klijent je uspesno povezan sa serverom!");
-
-                while (true)
+                try
                 {
-                    string serverLine;
+                    // ===== TCP CONNECT =====
+                    clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    IPEndPoint serverEP = new IPEndPoint(serverIp, tcpPort);
 
-                    if (!usingUdp)
+                    clientSocket.Connect(serverEP);
+                    Console.WriteLine("Povezan na server (TCP).");
+
+                    // ===== MAIN LOOP =====
+                    while (true)
                     {
-                        serverLine = ReceiveLineTcp(clientSocket);
-                    }
-                    else
-                    {
-                        serverLine = ReceiveLineUdp(udpSock, ref serverUdpEP);
-                    }
-
-                    if (serverLine == null)
-                    {
-                        Console.WriteLine("Server je zatvorio konekciju.");
-                        Console.WriteLine("Pritisni taster za izlaz...");
-                        Console.ReadKey();
-                        return;
-                    }
-
-                    Console.WriteLine(serverLine);
-
-                    
-                    if (!usingUdp && serverLine.StartsWith("ERR", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Console.WriteLine("Login neuspesan. Klijent zavrsava.");
-                        Console.WriteLine("Pritisni taster za izlaz...");
-                        Console.ReadKey();
-                        return;
-                    }
-
-                    
-                    if (!usingUdp && serverLine.Trim().Equals("Username:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string username = Console.ReadLine();
-                        SendLineTcp(clientSocket, username);
-                        continue;
-                    }
-                    else if (!usingUdp && serverLine.Trim().Equals("Sifra:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string pass = Console.ReadLine();
-                        SendLineTcp(clientSocket, pass);
-                        continue;
-                    }
-
-                    
-                    if (!usingUdp && serverLine.StartsWith("OK", StringComparison.OrdinalIgnoreCase) && serverLine.Contains("UDPPORT"))
-                    {
-                        if (!TryParseUdpPort(serverLine, out int udpPort))
-                        {
-                            Console.WriteLine("Greska: ne mogu da procitam UDPPORT iz poruke: " + serverLine);
-                            return;
-                        }
-
-                        
-                        udpSock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                        udpSock.Bind(new IPEndPoint(IPAddress.Any, 0)); 
-
-                        serverUdpEP = new IPEndPoint(((IPEndPoint)serverEP).Address, udpPort);
-
-                        
-                        SendLineUdp(udpSock, serverUdpEP, "HELLO");
-
-                        usingUdp = true;
-                        continue;
-                    }
-
-                    
-                    if (serverLine.Trim().Equals("Dostupno slanje komandi (unesi kraj za izlaz)", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string komanda = Console.ReadLine();
-
                         if (!usingUdp)
-                            SendLineTcp(clientSocket, komanda);
+                        {
+                            // ===== TCP faza (login) =====
+                            string serverLine = ReceiveLineTcp(clientSocket);
+                            if (serverLine == null)
+                            {
+                                Console.WriteLine("Server je zatvorio TCP konekciju.");
+                                reloginNeeded = true;
+                                break;
+                            }
+
+                            Console.WriteLine(serverLine);
+
+                            if (serverLine.StartsWith("ERR", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Console.WriteLine("Login neuspesan. Pokusavam ponovo (reconnect)...");
+                                reloginNeeded = true;
+                                break;
+                            }
+
+                            if (serverLine.Trim().Equals("Username:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string username = Console.ReadLine();
+                                SendLineTcp(clientSocket, username);
+                                continue;
+                            }
+
+                            if (serverLine.Trim().Equals("Sifra:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string pass = Console.ReadLine();
+                                SendLineTcp(clientSocket, pass);
+                                continue;
+                            }
+
+                            // OK ... UDPPORT ...
+                            if (serverLine.StartsWith("OK", StringComparison.OrdinalIgnoreCase) && serverLine.Contains("UDPPORT"))
+                            {
+                                if (!TryParseUdpPort(serverLine, out int udpPort))
+                                {
+                                    Console.WriteLine("Greska: ne mogu da procitam UDPPORT iz poruke: " + serverLine);
+                                    reloginNeeded = true;
+                                    break;
+                                }
+
+                                // ===== UDP SETUP =====
+                                udpSock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                                udpSock.Bind(new IPEndPoint(IPAddress.Any, 0)); // ephemeralan port
+                                udpSock.Blocking = false;
+
+                                serverUdpEP = new IPEndPoint(serverIp, udpPort);
+
+                                // handshake
+                                SendLineUdp(udpSock, serverUdpEP, "HELLO");
+
+                                usingUdp = true;
+
+                                Console.WriteLine($"UDP kanal iniciran. Server UDP port: {udpPort}");
+                                Console.WriteLine("Unosi komandu: <Uredjaj> <funkcija:vrednost> ili 'kraj'");
+                                continue;
+                            }
+                        }
                         else
-                            SendLineUdp(udpSock, serverUdpEP, komanda);
+                        {
+                            // ===== UDP faza (session) =====
+
+                            // 1) Procitaj sve UDP poruke koje su stigle (Poll)
+                            while (udpSock.Poll(50 * 1000, SelectMode.SelectRead)) // 50ms
+                            {
+                                string udpLine = null;
+                                try
+                                {
+                                    EndPoint from = serverUdpEP; // server endpoint
+                                    udpLine = ReceiveLineUdp(udpSock, ref from);
+                                }
+                                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
+                                {
+                                    break;
+                                }
+
+                                if (udpLine == null) break;
+
+                                Console.WriteLine(udpLine);
+
+                                if (udpLine.StartsWith("SESSION_CLOSED", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    // server javio istek — relogin
+                                    reloginNeeded = true;
+                                    break;
+                                }
+                            }
+
+                            if (reloginNeeded)
+                                break;
+
+                            // 2) Uzimaj korisnicki unos bez blokiranja
+                            if (Console.KeyAvailable)
+                            {
+                                string cmd = Console.ReadLine();
+
+                                if (string.IsNullOrWhiteSpace(cmd))
+                                    continue;
+
+                                // salji komandu UDP-om
+                                SendLineUdp(udpSock, serverUdpEP, cmd);
+
+                                if (cmd.Trim().Equals("kraj", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    reloginNeeded = true;
+                                    break;
+                                }
+                            }
+                            else
+                            {
+                                // kratko spavanje da ne zauzima 100% CPU
+                                System.Threading.Thread.Sleep(30);
+                            }
+                        }
                     }
                 }
-            }
-            catch (SocketException ex)
-            {
-                Console.WriteLine("Socket greska: " + ex.Message);
-                Console.WriteLine("Pritisni taster za izlaz...");
-                Console.ReadKey();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Greska: " + ex);
-                Console.WriteLine("Pritisni taster za izlaz...");
-                Console.ReadKey();
+                catch (SocketException ex)
+                {
+                    Console.WriteLine("Socket greska: " + ex.Message);
+                    reloginNeeded = true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Greska: " + ex);
+                    reloginNeeded = true;
+                }
+                finally
+                {
+                    try { udpSock?.Close(); } catch { }
+                    try { clientSocket?.Close(); } catch { }
+                }
+
+                if (reloginNeeded)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("=== Potrebna je ponovna prijava (reconnect) ===");
+                    Console.WriteLine("Pritisni ENTER za novi login (ili Ctrl+C za izlaz)...");
+                    Console.ReadLine();
+                    Console.Clear();
+                    continue; // vrati se na pocetak i uradi novi TCP login
+                }
+
+                break;
             }
         }
 
@@ -149,8 +214,6 @@ namespace Client
             return sb.ToString();
         }
 
-        
-
         private static void SendLineUdp(Socket udpSocket, EndPoint ep, string message)
         {
             byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
@@ -169,7 +232,6 @@ namespace Client
         {
             port = 0;
 
-            
             string[] parts = okLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             for (int i = 0; i < parts.Length - 1; i++)
             {
