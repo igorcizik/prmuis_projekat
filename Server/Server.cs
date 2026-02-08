@@ -25,8 +25,6 @@ namespace Server
             new Korisnik("Luka" , "Lukic", "lukal" , "1234"),
             new Korisnik("Marko" , "Markovic" , "markom" , "abcd"),
             new Korisnik("Isidora" , "Nikolic" , "isidoran", "7891"),
-
-
         };
 
         private static List<Uredjaj> ListaUredjaja = new List<Uredjaj>()
@@ -46,27 +44,24 @@ namespace Server
                 serverSocket.Bind(serverEP);
                 Korisnik ulogovanKorisnik = new Korisnik();
 
-
-
                 serverSocket.Listen(10);
 
                 Console.WriteLine($"Server slusa na portu {TCPPort}...");
 
                 Socket acceptedSocket = serverSocket.Accept();
-                
-
-                
 
                 Console.WriteLine("Klijent povezan " + acceptedSocket.RemoteEndPoint);
 
-                UdpClient udpSocket = new UdpClient();  
-                udpSocket.Client.ReceiveTimeout = 5000;
+                
+                Socket udpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                udpSocket.Bind(new IPEndPoint(IPAddress.Any, 0)); 
+                udpSocket.ReceiveTimeout = 5000;
 
                 SendLineTcp(acceptedSocket, "==============LOGOVANJE==============");
                 SendLineTcp(acceptedSocket, "Username:");
-                
+
                 string username = ReceiveLineTcp(acceptedSocket);
-                
+
                 if (string.IsNullOrWhiteSpace(username))
                 {
                     SendLineTcp(acceptedSocket, "ERR empty_username");
@@ -106,18 +101,31 @@ namespace Server
                 ulogovanKorisnik.StatusPrijave = true;
                 ulogovanKorisnik.Port = sessionUdpPort;
 
+                
                 SendLineTcp(acceptedSocket, $"OK {ulogovanKorisnik.Ime} {ulogovanKorisnik.Prezime} UDPPORT {sessionUdpPort}");
                 Console.WriteLine($"[LOGIN] OK: {ulogovanKorisnik.KorisnickoIme}, dodeljen UDP port {sessionUdpPort}");
 
-                ispisListeUredjaja(ListaUredjaja, acceptedSocket);
+                
+                Socket udpUserSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                udpUserSocket.Bind(new IPEndPoint(IPAddress.Any, sessionUdpPort));
+
+                EndPoint clientUserEP = new IPEndPoint(IPAddress.Any, 0);
+
+                Console.WriteLine($"[UDP-USER] Server ceka prvi UDP paket na portu {sessionUdpPort} (od klijenta)...");
+                byte[] helloBuf = new byte[2048];
+                int helloLen = udpUserSocket.ReceiveFrom(helloBuf, ref clientUserEP); // handshake: klijent posalje bilo sta
+                Console.WriteLine($"[UDP-USER] Klijent UDP endpoint: {clientUserEP}");
+
+                SendLineUdp(udpUserSocket, clientUserEP, "UDP kanal uspostavljen.");
+
+                
+                ispisListeUredjaja(ListaUredjaja, udpUserSocket, clientUserEP);
                 Console.WriteLine("[ISPIS] Ispisana lista dostupnih uredjaja korisniku");
 
-               
                 while (true)
                 {
-                    SendLineTcp(acceptedSocket, "Dostupno slanje komandi (unesi kraj za izlaz)");
-                    string komanda = ReceiveLineTcp(acceptedSocket);
-                   // Console.WriteLine($"{komanda}");
+                    SendLineUdp(udpUserSocket, clientUserEP, "Dostupno slanje komandi (unesi kraj za izlaz)");
+                    string komanda = ReceiveLineUdp(udpUserSocket, ref clientUserEP);
 
                     if (komanda == null)
                         break;
@@ -132,24 +140,22 @@ namespace Server
 
                     if (delovi.Length != 2)
                     {
-                        SendLineTcp(acceptedSocket, "Pogresan format komande");
+                        SendLineUdp(udpUserSocket, clientUserEP, "Pogresan format komande");
                         continue;
                     }
 
-                    string imeUredjaja = delovi[0]; 
+                    string imeUredjaja = delovi[0];
 
-                    
                     string[] fv = delovi[1].Split(':');
 
                     if (fv.Length != 2)
                     {
-                        SendLineTcp(acceptedSocket, "Pogresan format funkcije");
+                        SendLineUdp(udpUserSocket, clientUserEP, "Pogresan format funkcije");
                         continue;
                     }
 
-                    string funkcija = fv[0]; 
+                    string funkcija = fv[0];
                     string vrednost = fv[1];
-
 
                     bool uredjajPronadjen = false;
 
@@ -163,60 +169,52 @@ namespace Server
                             {
                                 u.Funkcije[funkcija] = vrednost;
 
-                                
                                 IPEndPoint deviceEP = new IPEndPoint(IPAddress.Loopback, u.Port);
 
                                 string udpMsg = funkcija + ":" + vrednost;
                                 byte[] data = Encoding.UTF8.GetBytes(udpMsg);
 
-                                udpSocket.Send(data, data.Length, deviceEP);
+                                udpSocket.SendTo(data, deviceEP);
 
-                                
                                 try
                                 {
-                                    IPEndPoint from = null;
-                                    byte[] resp = udpSocket.Receive(ref from);
-                                    string respText = Encoding.UTF8.GetString(resp);
+                                    byte[] respBuf = new byte[2048];
+                                    EndPoint from = new IPEndPoint(IPAddress.Any, 0);
+                                    int respLen = udpSocket.ReceiveFrom(respBuf, ref from);
+                                    string respText = Encoding.UTF8.GetString(respBuf, 0, respLen);
 
                                     
-                                    SendLineTcp(acceptedSocket, "ACK " + respText);
+                                    SendLineUdp(udpUserSocket, clientUserEP, "ACK " + respText);
                                 }
                                 catch (SocketException)
                                 {
-                                    SendLineTcp(acceptedSocket, "ACK TIMEOUT (uredjaj ne odgovara)");
+                                    SendLineUdp(udpUserSocket, clientUserEP, "ACK TIMEOUT (uredjaj ne odgovara)");
                                 }
 
                             }
                             else
                             {
-                                SendLineTcp(acceptedSocket,
-                                    $"Uredjaj nema funkciju: {funkcija}");
+                                SendLineUdp(udpUserSocket, clientUserEP, $"Uredjaj nema funkciju: {funkcija}");
                             }
 
-                            break; 
+                            break;
                         }
                     }
 
                     if (!uredjajPronadjen)
                     {
-                        SendLineTcp(acceptedSocket, "Nepostojeci uredjaj");
+                        SendLineUdp(udpUserSocket, clientUserEP, "Nepostojeci uredjaj");
                     }
 
-                    ispisListeUredjaja(ListaUredjaja, acceptedSocket);
-
+                    ispisListeUredjaja(ListaUredjaja, udpUserSocket, clientUserEP);
                 }
-
-                
-
-
             }
             catch (SocketException ex)
             {
                 Console.WriteLine("[ERROR] SocketException: " + ex.Message);
             }
-
-
         }
+
         private static void SendLineTcp(Socket socket, string message)
         {
             byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
@@ -246,6 +244,21 @@ namespace Server
             return sb.ToString();
         }
 
+        
+        private static void SendLineUdp(Socket udpSocket, EndPoint ep, string message)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
+            udpSocket.SendTo(data, ep);
+        }
+
+        private static string ReceiveLineUdp(Socket udpSocket, ref EndPoint ep)
+        {
+            byte[] buf = new byte[4096];
+            int len = udpSocket.ReceiveFrom(buf, ref ep);
+            string text = Encoding.UTF8.GetString(buf, 0, len);
+            return text.TrimEnd('\r', '\n');
+        }
+
         private static int DodeliUDPPort()
         {
             for (int i = 0; i < 5000; i++)
@@ -260,28 +273,26 @@ namespace Server
             throw new Exception("Nema slobodnih UDP portova u opsegu.");
         }
 
-        private static void ispisListeUredjaja(List<Uredjaj> listaZaIspis,Socket accSocket)
+        
+
+        private static void ispisListeUredjaja(List<Uredjaj> listaZaIspis, Socket udpUserSocket, EndPoint clientEP)
         {
             int i = 1;
-            SendLineTcp(accSocket,"Lista uredjaja:\n");
-            foreach(Uredjaj u in listaZaIspis)
+            SendLineUdp(udpUserSocket, clientEP, "Lista uredjaja:\n");
+            foreach (Uredjaj u in listaZaIspis)
             {
                 string ispis = String.Empty;
 
-                ispis = i+ ")" + " " + u.ImeUredjaja + " " + u.Port + " ";
-                foreach(var par in u.Funkcije)
+                ispis = i + ")" + " " + u.ImeUredjaja + " " + u.Port + " ";
+                foreach (var par in u.Funkcije)
                 {
                     ispis = ispis + par.Key + ":" + par.Value + " ";
                 }
-                SendLineTcp(accSocket, ispis);
+                SendLineUdp(udpUserSocket, clientEP, ispis);
                 i++;
             }
 
-            SendLineTcp(accSocket, "\nKraj liste uredjaja.\n");
-
-
+            SendLineUdp(udpUserSocket, clientEP, "\nKraj liste uredjaja.\n");
         }
     }
-
-
 }

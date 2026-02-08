@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Client
 {
@@ -12,11 +9,11 @@ namespace Client
     {
         static void Main(string[] args)
         {
-
-
-
             Socket clientSocket = null;
-            
+
+            Socket udpSock = null;
+            EndPoint serverUdpEP = null;
+            bool usingUdp = false;
 
             try
             {
@@ -29,72 +26,100 @@ namespace Client
                 clientSocket.Connect(serverEP);
                 Console.WriteLine("Klijent je uspesno povezan sa serverom!");
 
-
-                
-
                 while (true)
                 {
-                    string serverLine = ReceiveLineTcp(clientSocket);
+                    string serverLine;
+
+                    if (!usingUdp)
+                    {
+                        serverLine = ReceiveLineTcp(clientSocket);
+                    }
+                    else
+                    {
+                        serverLine = ReceiveLineUdp(udpSock, ref serverUdpEP);
+                    }
+
                     if (serverLine == null)
                     {
                         Console.WriteLine("Server je zatvorio konekciju.");
                         Console.WriteLine("Pritisni taster za izlaz...");
                         Console.ReadKey();
-
                         return;
                     }
 
                     Console.WriteLine(serverLine);
 
-                    if (serverLine.StartsWith("ERR", StringComparison.OrdinalIgnoreCase))
+                    
+                    if (!usingUdp && serverLine.StartsWith("ERR", StringComparison.OrdinalIgnoreCase))
                     {
                         Console.WriteLine("Login neuspesan. Klijent zavrsava.");
                         Console.WriteLine("Pritisni taster za izlaz...");
                         Console.ReadKey();
-
                         return;
                     }
 
-                    if (serverLine.Trim().Equals("Username:", StringComparison.OrdinalIgnoreCase))
+                    
+                    if (!usingUdp && serverLine.Trim().Equals("Username:", StringComparison.OrdinalIgnoreCase))
                     {
-                        
                         string username = Console.ReadLine();
                         SendLineTcp(clientSocket, username);
+                        continue;
                     }
-                    else if (serverLine.Trim().Equals("Sifra:", StringComparison.OrdinalIgnoreCase))
+                    else if (!usingUdp && serverLine.Trim().Equals("Sifra:", StringComparison.OrdinalIgnoreCase))
                     {
-                        
                         string pass = Console.ReadLine();
                         SendLineTcp(clientSocket, pass);
+                        continue;
                     }
 
+                    
+                    if (!usingUdp && serverLine.StartsWith("OK", StringComparison.OrdinalIgnoreCase) && serverLine.Contains("UDPPORT"))
+                    {
+                        if (!TryParseUdpPort(serverLine, out int udpPort))
+                        {
+                            Console.WriteLine("Greska: ne mogu da procitam UDPPORT iz poruke: " + serverLine);
+                            return;
+                        }
+
+                        
+                        udpSock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                        udpSock.Bind(new IPEndPoint(IPAddress.Any, 0)); 
+
+                        serverUdpEP = new IPEndPoint(((IPEndPoint)serverEP).Address, udpPort);
+
+                        
+                        SendLineUdp(udpSock, serverUdpEP, "HELLO");
+
+                        usingUdp = true;
+                        continue;
+                    }
+
+                    
                     if (serverLine.Trim().Equals("Dostupno slanje komandi (unesi kraj za izlaz)", StringComparison.OrdinalIgnoreCase))
                     {
-
                         string komanda = Console.ReadLine();
-                        SendLineTcp(clientSocket,komanda);
-                    }
 
+                        if (!usingUdp)
+                            SendLineTcp(clientSocket, komanda);
+                        else
+                            SendLineUdp(udpSock, serverUdpEP, komanda);
+                    }
                 }
             }
             catch (SocketException ex)
             {
+                Console.WriteLine("Socket greska: " + ex.Message);
                 Console.WriteLine("Pritisni taster za izlaz...");
                 Console.ReadKey();
-
-                Console.WriteLine("Socket greska: " + ex.Message);
             }
             catch (Exception ex)
             {
+                Console.WriteLine("Greska: " + ex);
                 Console.WriteLine("Pritisni taster za izlaz...");
                 Console.ReadKey();
-
-                Console.WriteLine("Greska: " + ex);
             }
-            Console.WriteLine("Pritisni taster za izlaz...");
-            Console.ReadKey();
-
         }
+
         private static void SendLineTcp(Socket socket, string message)
         {
             byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
@@ -123,6 +148,37 @@ namespace Client
 
             return sb.ToString();
         }
+
+        
+
+        private static void SendLineUdp(Socket udpSocket, EndPoint ep, string message)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
+            udpSocket.SendTo(data, ep);
+        }
+
+        private static string ReceiveLineUdp(Socket udpSocket, ref EndPoint ep)
+        {
+            byte[] buf = new byte[4096];
+            int len = udpSocket.ReceiveFrom(buf, ref ep);
+            string text = Encoding.UTF8.GetString(buf, 0, len);
+            return text.TrimEnd('\r', '\n');
+        }
+
+        private static bool TryParseUdpPort(string okLine, out int port)
+        {
+            port = 0;
+
+            
+            string[] parts = okLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length - 1; i++)
+            {
+                if (parts[i].Equals("UDPPORT", StringComparison.OrdinalIgnoreCase))
+                {
+                    return int.TryParse(parts[i + 1], out port);
+                }
+            }
+            return false;
+        }
     }
 }
-
