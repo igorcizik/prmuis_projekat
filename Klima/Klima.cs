@@ -64,12 +64,12 @@ namespace Klima
                     return "Svetla: power " + power;
 
                 case "intenzitet":
-                    intenzitet = vrednost;
-                    return "Svetla: promena intenziteta na " + intenzitet + "%";
+                    mode = vrednost;
+                    return "Klima: mode promenjen na " + mode;
 
                 case "boja":
-                    boja = vrednost;
-                    return "Svetla: boja promenjena u " + boja;
+                    temp = vrednost;
+                    return "Klima: temperatura promenjena na " + temp + "C";
 
                 default:
                     return "Svetla: nepostojeca funkcija";
