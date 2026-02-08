@@ -16,20 +16,24 @@ namespace Klima
 
         static void Main(string[] args)
         {
-            int PortUredjaja = 10002;
+            int PortUredjaja = 10002;;
 
-            UdpClient udpKlijent = new UdpClient(PortUredjaja);
+            Socket udpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
-            Console.WriteLine("Uredjaj klima pokrenut");
+            udpSocket.Bind(new IPEndPoint(IPAddress.Any, PortUredjaja));
+
+            Console.WriteLine("Uredjaj svetla pokrenut");
             Console.WriteLine("Slusam na UDP portu: " + PortUredjaja);
+
+            byte[] buffer = new byte[1024];
 
             while (true)
             {
-                IPEndPoint serverEP = new IPEndPoint(IPAddress.Any, 0);
+                EndPoint serverEP = new IPEndPoint(IPAddress.Any, 0);
 
-                byte[] primljenaPoruka = udpKlijent.Receive(ref serverEP);
+                int primljeno = udpSocket.ReceiveFrom(buffer, ref serverEP);
 
-                string komanda = Encoding.UTF8.GetString(primljenaPoruka);
+                string komanda = Encoding.UTF8.GetString(buffer, 0, primljeno);
 
                 Console.WriteLine("Primljeno: " + komanda);
 
@@ -37,15 +41,12 @@ namespace Klima
 
                 byte[] povratnaPoruka = Encoding.UTF8.GetBytes(odgovor);
 
-                udpKlijent.Send(povratnaPoruka, povratnaPoruka.Length, serverEP);
-
+                udpSocket.SendTo(povratnaPoruka, serverEP);
             }
         }
 
         private static string ObradiKomandu(string komanda)
         {
-
-
             string[] delovi = komanda.Split(':');
 
             if (delovi.Length != 2)
@@ -60,20 +61,19 @@ namespace Klima
             {
                 case "power":
                     power = vrednost;
-                    return "Klima: power "+power;
+                    return "Svetla: power " + power;
 
-                case "mode":
-                    mode = vrednost;
-                    return "Klima: mod promenjen u " + mode;
+                case "intenzitet":
+                    intenzitet = vrednost;
+                    return "Svetla: promena intenziteta na " + intenzitet + "%";
 
-                case "temp":
-                    temp = vrednost;
-                    return "Klima: temperatura postavljena na " + temp + "°C";
+                case "boja":
+                    boja = vrednost;
+                    return "Svetla: boja promenjena u " + boja;
 
                 default:
-                    return "ERROR nepostojeca funkcija";
+                    return "Svetla: nepostojeca funkcija";
             }
-
         }
     }
 }

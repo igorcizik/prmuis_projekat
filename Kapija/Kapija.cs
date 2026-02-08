@@ -16,18 +16,22 @@ namespace Kapija
         {
             int PortUredjaja = 10003;
 
-            UdpClient udpKlijent = new UdpClient(PortUredjaja);
+            Socket udpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
-            Console.WriteLine("Uredjaj kapija pokrenut");
+            udpSocket.Bind(new IPEndPoint(IPAddress.Any, PortUredjaja));
+
+            Console.WriteLine("Uredjaj svetla pokrenut");
             Console.WriteLine("Slusam na UDP portu: " + PortUredjaja);
+
+            byte[] buffer = new byte[1024];
 
             while (true)
             {
-                IPEndPoint serverEP = new IPEndPoint(IPAddress.Any, 0);
+                EndPoint serverEP = new IPEndPoint(IPAddress.Any, 0);
 
-                byte[] primljenaPoruka = udpKlijent.Receive(ref serverEP);
+                int primljeno = udpSocket.ReceiveFrom(buffer, ref serverEP);
 
-                string komanda = Encoding.UTF8.GetString(primljenaPoruka);
+                string komanda = Encoding.UTF8.GetString(buffer, 0, primljeno);
 
                 Console.WriteLine("Primljeno: " + komanda);
 
@@ -35,8 +39,7 @@ namespace Kapija
 
                 byte[] povratnaPoruka = Encoding.UTF8.GetBytes(odgovor);
 
-                udpKlijent.Send(povratnaPoruka, povratnaPoruka.Length, serverEP);
-
+                udpSocket.SendTo(povratnaPoruka, serverEP);
             }
         }
 
