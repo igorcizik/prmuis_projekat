@@ -46,7 +46,7 @@ namespace Server
         static void Main(string[] args)
         {
             LoadDevicesState();
-            RenderDashboard("SERVER START");
+            DisplaySystemStatus("SERVER START");
 
             Socket serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             serverSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
@@ -72,11 +72,11 @@ namespace Server
                     if (user == null)
                     {
                         try { tcpClient.Close(); } catch { }
-                        RenderDashboard("LOGIN FAILED");
+                        DisplaySystemStatus("LOGIN FAILED");
                         continue;
                     }
 
-                    udpPort = DodeliUDPPort();
+                    udpPort = AssignUdpPort();
                     user.StatusPrijave = true;
                     user.Port = udpPort;
 
@@ -92,10 +92,10 @@ namespace Server
                     bool hs = WaitForFirstUdpPacket(udpUser, ref clientEP, 3000);
                     if (!hs)
                     {
-                        CleanupSession(user, udpPort);
+                        Cleanup(user, udpPort);
                         try { udpUser.Close(); } catch { }
                         try { tcpClient.Close(); } catch { }
-                        RenderDashboard("UDP HANDSHAKE TIMEOUT");
+                        DisplaySystemStatus("UDP HANDSHAKE TIMEOUT");
                         continue;
                     }
 
@@ -110,8 +110,8 @@ namespace Server
                         deviceSocketList.Add(s);
                     }
 
-                    SendDevicesTableUdp(udpUser, clientEP);
-                    RenderDashboard("LOGIN OK: " + user.KorisnickoIme);
+                    SendDevicesTable(udpUser, clientEP);
+                    DisplaySystemStatus("LOGIN OK: " + user.KorisnickoIme);
 
                     Stopwatch idle = Stopwatch.StartNew();
                     Stopwatch dashSw = Stopwatch.StartNew();
@@ -120,15 +120,15 @@ namespace Server
                     {
                         if (dashSw.ElapsedMilliseconds >= 1000)
                         {
-                            RenderDashboard("RUNNING");
+                            DisplaySystemStatus("RUNNING");
                             dashSw.Restart();
                         }
 
                         if (idle.ElapsedMilliseconds >= SessionIdleMs)
                         {
                             try { SendLineUdp(udpUser, clientEP, "SESSION_CLOSED"); } catch { }
-                            CleanupSession(user, udpPort);
-                            RenderDashboard("SESSION TIMEOUT: " + user.KorisnickoIme);
+                            Cleanup(user, udpPort);
+                            DisplaySystemStatus("SESSION TIMEOUT: " + user.KorisnickoIme);
                             break;
                         }
 
@@ -141,23 +141,23 @@ namespace Server
 
                         if (cmd == "kraj")
                         {
-                            CleanupSession(user, udpPort);
-                            RenderDashboard("LOGOUT: " + user.KorisnickoIme);
+                            Cleanup(user, udpPort);
+                            DisplaySystemStatus("LOGOUT: " + user.KorisnickoIme);
                             break;
                         }
 
-                        ObradiKomandu(cmd, user, udpUser, clientEP, deviceSockets, deviceSocketList);
+                        Command(cmd, user, udpUser, clientEP, deviceSockets, deviceSocketList);
                     }
                 }
                 catch (SocketException ex)
                 {
-                    if (user != null && user.StatusPrijave && udpPort != 0) CleanupSession(user, udpPort);
-                    RenderDashboard("SOCKET ERROR: " + ex.Message);
+                    if (user != null && user.StatusPrijave && udpPort != 0) Cleanup(user, udpPort);
+                    DisplaySystemStatus("SOCKET ERROR: " + ex.Message);
                 }
                 catch (Exception ex)
                 {
-                    if (user != null && user.StatusPrijave && udpPort != 0) CleanupSession(user, udpPort);
-                    RenderDashboard("ERROR: " + ex.Message);
+                    if (user != null && user.StatusPrijave && udpPort != 0) Cleanup(user, udpPort);
+                    DisplaySystemStatus("ERROR: " + ex.Message);
                 }
                 finally
                 {
@@ -175,13 +175,7 @@ namespace Server
             }
         }
 
-        static void ObradiKomandu(
-            string cmd,
-            Korisnik user,
-            Socket udp,
-            EndPoint ep,
-            Dictionary<int, Socket> deviceSockets,
-            List<Socket> deviceSocketList)
+        static void Command(string cmd,Korisnik user,Socket udp,EndPoint ep,Dictionary<int, Socket> deviceSockets,List<Socket> deviceSocketList)
         {
             string[] p = cmd.Split(' ');
             if (p.Length != 2)
@@ -223,19 +217,19 @@ namespace Server
             IPEndPoint deviceEP = new IPEndPoint(IPAddress.Loopback, d.Port);
             byte[] data = Encoding.UTF8.GetBytes(funkcija + ":" + vrednost);
 
-            Socket sendSock;
-            if (!deviceSockets.TryGetValue(d.Port, out sendSock))
+            Socket sendSocket;
+            if (!deviceSockets.TryGetValue(d.Port, out sendSocket))
             {
                 SendLineUdp(udp, ep, "Greska: nema socketa za uredjaj");
                 return;
             }
 
-            try { sendSock.SendTo(data, deviceEP); }
+            try { sendSocket.SendTo(data, deviceEP); }
             catch
             {
                 SendLineUdp(udp, ep, "ACK TIMEOUT (uredjaj ne odgovara)");
-                SendDevicesTableUdp(udp, ep);
-                RenderDashboard("DEVICE SEND FAIL");
+                SendDevicesTable(udp, ep);
+                DisplaySystemStatus("DEVICE SEND FAIL");
                 return;
             }
 
@@ -277,11 +271,11 @@ namespace Server
             else
                 SendLineUdp(udp, ep, odgovorUredjaja);
 
-            SendDevicesTableUdp(udp, ep);
-            RenderDashboard("CMD: " + user.KorisnickoIme + " -> " + d.ImeUredjaja + " " + funkcija + ":" + vrednost);
+            SendDevicesTable(udp, ep);
+            DisplaySystemStatus("CMD: " + user.KorisnickoIme + " -> " + d.ImeUredjaja + " " + funkcija + ":" + vrednost);
         }
 
-        static void RenderDashboard(string status)
+        static void DisplaySystemStatus(string status)
         {
             lock (ConsoleLock)
             {
@@ -375,7 +369,7 @@ namespace Server
             catch { }
         }
 
-        static void SendDevicesTableUdp(Socket udp, EndPoint ep)
+        static void SendDevicesTable(Socket udp, EndPoint ep)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("IME | PORT | FUNKCIJE | POSLEDNJA PROMENA");
@@ -403,7 +397,7 @@ namespace Server
             return k;
         }
 
-        static void CleanupSession(Korisnik k, int p)
+        static void Cleanup(Korisnik k, int p)
         {
             try
             {
@@ -417,7 +411,7 @@ namespace Server
             catch { }
         }
 
-        static int DodeliUDPPort()
+        static int AssignUdpPort()
         {
             int p;
             do { p = Rng.Next(UDPMin, UDPMax); } while (UsedUdpPorts.Contains(p));
