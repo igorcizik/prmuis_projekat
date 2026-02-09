@@ -68,19 +68,22 @@ namespace Svetla
             {
                 case "power":
                     power = vrednost;
-                    return "Svetla: power " + power;
+                    if (vrednost == "OFF")
+                        return "Svetla: iskljucena ";
+                    else
+                        return "Svetla: ukljucena";
 
                 case "intenzitet":
-                    intenzitet = vrednost;
-                    return "Svetla: promena intenziteta na " + intenzitet + "%";
+                            intenzitet = vrednost;
+                            return "Svetla: promena intenziteta na " + intenzitet + "%";
 
-                case "boja":
-                    boja = vrednost;
-                    return "Svetla: boja promenjena u " + boja;
+                        case "boja":
+                            boja = vrednost;
+                            return "Svetla: boja promenjena u " + boja;
 
-                default:
-                    return "Svetla: nepostojeca funkcija";
-            }
+                        default:
+                            return "ERROR nepostojeca funkcija";
+                        }
         }
     }
 }
