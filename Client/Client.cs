@@ -15,7 +15,7 @@ namespace Client
             Console.WriteLine("Klijent je spreman. Pritisni ENTER da krenes...");
             Console.ReadLine();
 
-            while (true) // auto-relogin loop
+            while (true) 
             {
                 Socket clientSocket = null;
                 Socket udpSock = null;
@@ -26,19 +26,19 @@ namespace Client
 
                 try
                 {
-                    // ===== TCP CONNECT =====
+                    
                     clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                     IPEndPoint serverEP = new IPEndPoint(serverIp, tcpPort);
 
                     clientSocket.Connect(serverEP);
                     Console.WriteLine("Povezan na server (TCP).");
 
-                    // ===== MAIN LOOP =====
+                    
                     while (true)
                     {
                         if (!usingUdp)
                         {
-                            // ===== TCP faza (login) =====
+                            
                             string serverLine = ReceiveLineTcp(clientSocket);
                             if (serverLine == null)
                             {
@@ -70,7 +70,7 @@ namespace Client
                                 continue;
                             }
 
-                            // OK ... UDPPORT ...
+                            
                             if (serverLine.StartsWith("OK", StringComparison.OrdinalIgnoreCase) && serverLine.Contains("UDPPORT"))
                             {
                                 if (!TryParseUdpPort(serverLine, out int udpPort))
@@ -80,9 +80,9 @@ namespace Client
                                     break;
                                 }
 
-                                // ===== UDP SETUP =====
+                                
                                 udpSock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                                udpSock.Bind(new IPEndPoint(IPAddress.Any, 0)); // ephemeralan port
+                                udpSock.Bind(new IPEndPoint(IPAddress.Any, 0)); 
                                 udpSock.Blocking = false;
 
                                 serverUdpEP = new IPEndPoint(serverIp, udpPort);
@@ -92,22 +92,20 @@ namespace Client
 
                                 usingUdp = true;
 
-                                Console.WriteLine($"UDP kanal iniciran. Server UDP port: {udpPort}");
+                                Console.WriteLine($"UDP kanal inicijalizovan. Server UDP port: {udpPort}");
                                 Console.WriteLine("Unosi komandu: <Uredjaj> <funkcija:vrednost> ili 'kraj'");
                                 continue;
                             }
                         }
                         else
                         {
-                            // ===== UDP faza (session) =====
-
-                            // 1) Procitaj sve UDP poruke koje su stigle (Poll)
+                            
                             while (udpSock.Poll(50 * 1000, SelectMode.SelectRead)) // 50ms
                             {
                                 string udpLine = null;
                                 try
                                 {
-                                    EndPoint from = serverUdpEP; // server endpoint
+                                    EndPoint from = serverUdpEP; 
                                     udpLine = ReceiveLineUdp(udpSock, ref from);
                                 }
                                 catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
@@ -121,7 +119,7 @@ namespace Client
 
                                 if (udpLine.StartsWith("SESSION_CLOSED", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    // server javio istek — relogin
+                                    
                                     reloginNeeded = true;
                                     break;
                                 }
@@ -130,7 +128,7 @@ namespace Client
                             if (reloginNeeded)
                                 break;
 
-                            // 2) Uzimaj korisnicki unos bez blokiranja
+                            
                             if (Console.KeyAvailable)
                             {
                                 string cmd = Console.ReadLine();
@@ -138,7 +136,7 @@ namespace Client
                                 if (string.IsNullOrWhiteSpace(cmd))
                                     continue;
 
-                                // salji komandu UDP-om
+                                
                                 SendLineUdp(udpSock, serverUdpEP, cmd);
 
                                 if (cmd.Trim().Equals("kraj", StringComparison.OrdinalIgnoreCase))
@@ -149,7 +147,7 @@ namespace Client
                             }
                             else
                             {
-                                // kratko spavanje da ne zauzima 100% CPU
+                                
                                 System.Threading.Thread.Sleep(30);
                             }
                         }
@@ -178,7 +176,7 @@ namespace Client
                     Console.WriteLine("Pritisni ENTER za novi login (ili Ctrl+C za izlaz)...");
                     Console.ReadLine();
                     Console.Clear();
-                    continue; // vrati se na pocetak i uradi novi TCP login
+                    continue; 
                 }
 
                 break;

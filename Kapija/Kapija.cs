@@ -61,9 +61,12 @@ namespace Kapija
             {
                 case "otvorena":
                     otvorena = vrednost;
-                    return "Kapija: otvorena: " + vrednost;
+                    if (otvorena == "da" || otvorena == "DA")
+                        return "Otvorena kapija";
+                    else
+                        return "Zatvorena kapija";
 
-                default:
+                        default:
                     return "ERROR nepostojeca funkcija";
             }
 
