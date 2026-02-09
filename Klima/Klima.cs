@@ -61,18 +61,21 @@ namespace Klima
             {
                 case "power":
                     power = vrednost;
-                    return "Svetla: power " + power;
+                    if (vrednost == "OFF")
+                        return "Klima: iskljucena ";
+                    else
+                        return "Klima: ukljucena";
 
-                case "intenzitet":
+                case "mode":
                     mode = vrednost;
                     return "Klima: mode promenjen na " + mode;
 
-                case "boja":
+                case "temp":
                     temp = vrednost;
                     return "Klima: temperatura promenjena na " + temp + "C";
 
                 default:
-                    return "Svetla: nepostojeca funkcija";
+                    return "ERROR nepostojeca funkcija";
             }
         }
     }

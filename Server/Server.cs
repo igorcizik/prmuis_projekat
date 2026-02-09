@@ -5,6 +5,8 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Diagnostics;
+using System.IO;
+using Newtonsoft.Json;
 
 namespace Server
 {
@@ -14,325 +16,394 @@ namespace Server
         private const int UDPMin = 12000;
         private const int UDPMax = 13000;
 
-        // sesija: 3 minuta neaktivnosti
-        private const int SessionIdleMs = 3 * 60 * 1000; 
-        private const int UdpPollTimeoutUs = 300 * 1000; 
+        private const int SessionIdleMs = 3 * 60 * 1000;
+        private const int UdpPollTimeoutUs = 300 * 1000;
+
+        private const string DevicesStateFile = "devices_state.json";
+        private const string ActivityLogFile = "activity_log.txt";
 
         private static readonly HashSet<int> UsedUdpPorts = new HashSet<int>();
         private static readonly Random Rng = new Random();
 
+        private static readonly object ConsoleLock = new object();
+        private static readonly Dictionary<string, DateTime> LastUserActivity = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
         private static readonly List<Korisnik> Korisnici = new List<Korisnik>
         {
-            new Korisnik("Nikola", "Bazic" , "nikolab" , "1234"),
-            new Korisnik("Luka" , "Lukic", "lukal" , "1234"),
-            new Korisnik("Marko" , "Markovic" , "markom" , "abcd"),
-            new Korisnik("Isidora" , "Nikolic" , "isidoran", "7891"),
+            new Korisnik("Nikola","Bazic","nikolab","1234"),
+            new Korisnik("Luka","Lukic","lukal","1234"),
+            new Korisnik("Marko","Markovic","markom","abcd"),
+            new Korisnik("Isidora","Nikolic","isidoran","7891")
         };
 
-        private static List<Uredjaj> ListaUredjaja = new List<Uredjaj>()
+        private static List<Uredjaj> ListaUredjaja = new List<Uredjaj>
         {
-            new Uredjaj("Svetla",10001,new Dictionary<string,string>{{"power","OFF"}, {"intenzitet","70"}, {"boja","bela"} }),
-            new Uredjaj("Klima",10002, new Dictionary<string, string>{{"power","OFF"}, { "mode", "grejanje"}, { "temp", "22"} }),
-            new Uredjaj("Kapija",10003, new Dictionary<string, string>{{"otvorena","ne"}}),
+            new Uredjaj("Svetla",10001,new Dictionary<string,string>{{"power","OFF"},{"intenzitet","70"},{"boja","bela"}}),
+            new Uredjaj("Klima",10002,new Dictionary<string,string>{{"power","OFF"},{"mode","grejanje"},{"temp","22"}}),
+            new Uredjaj("Kapija",10003,new Dictionary<string,string>{{"otvorena","ne"}})
         };
 
         static void Main(string[] args)
         {
-            Socket serverSocket = null;
+            LoadDevicesState();
+            RenderDashboard("SERVER START");
 
-            try
+            Socket serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            serverSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            serverSocket.Bind(new IPEndPoint(IPAddress.Any, TCPPort));
+            serverSocket.Listen(10);
+
+            while (true)
             {
-                serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                Socket tcpClient = null;
+                Socket udpUser = null;
 
-                
-                serverSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                Dictionary<int, Socket> deviceSockets = null;
+                List<Socket> deviceSocketList = null;
 
-                serverSocket.Bind(new IPEndPoint(IPAddress.Any, TCPPort));
-                serverSocket.Listen(10);
+                Korisnik user = null;
+                int udpPort = 0;
 
-                Console.WriteLine($"Server slusa na portu {TCPPort}...");
-
-                while (true) 
+                try
                 {
-                    Socket acceptedSocket = null;
-                    Socket udpSocket = null;      
-                    Socket udpUserSocket = null;  
+                    tcpClient = serverSocket.Accept();
 
-                    Korisnik ulogovanKorisnik = null;
-                    int sessionUdpPort = 0;
-
-                    try
+                    user = Login(tcpClient);
+                    if (user == null)
                     {
-                        acceptedSocket = serverSocket.Accept();
-                        Console.WriteLine("Klijent povezan " + acceptedSocket.RemoteEndPoint);
-
-                        // UDP socket za kom sa uredjajima
-                        udpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                        udpSocket.Bind(new IPEndPoint(IPAddress.Any, 0));
-                        udpSocket.ReceiveTimeout = 5000;
-
-                        
-                        SendLineTcp(acceptedSocket, "==============LOGOVANJE==============");
-                        SendLineTcp(acceptedSocket, "Username:");
-
-                        string username = ReceiveLineTcp(acceptedSocket);
-                        if (string.IsNullOrWhiteSpace(username))
-                        {
-                            SendLineTcp(acceptedSocket, "ERR empty_username");
-                            continue;
-                        }
-
-                        SendLineTcp(acceptedSocket, "Sifra:");
-                        string password = ReceiveLineTcp(acceptedSocket);
-                        if (string.IsNullOrWhiteSpace(password))
-                        {
-                            SendLineTcp(acceptedSocket, "ERR empty_password");
-                            continue;
-                        }
-
-                        ulogovanKorisnik = Korisnici.FirstOrDefault(u =>
-                            u.KorisnickoIme.Equals(username.Trim(), StringComparison.OrdinalIgnoreCase));
-
-                        if (ulogovanKorisnik == null)
-                        {
-                            SendLineTcp(acceptedSocket, "ERR user_not_found");
-                            continue;
-                        }
-
-                        if (ulogovanKorisnik.StatusPrijave)
-                        {
-                            SendLineTcp(acceptedSocket, "ERR already_logged_in");
-                            continue;
-                        }
-
-                        if (ulogovanKorisnik.Lozinka != password)
-                        {
-                            SendLineTcp(acceptedSocket, "ERR wrong_password");
-                            continue;
-                        }
-
-                        sessionUdpPort = DodeliUDPPort();
-                        ulogovanKorisnik.StatusPrijave = true;
-                        ulogovanKorisnik.Port = sessionUdpPort;
-
-                        SendLineTcp(acceptedSocket, $"OK {ulogovanKorisnik.Ime} {ulogovanKorisnik.Prezime} UDPPORT {sessionUdpPort}");
-                        Console.WriteLine($"[LOGIN] OK: {ulogovanKorisnik.KorisnickoIme}, dodeljen UDP port {sessionUdpPort}");
-
-                        
-                        udpUserSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                        udpUserSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-                        udpUserSocket.Bind(new IPEndPoint(IPAddress.Any, sessionUdpPort));
-                        udpUserSocket.Blocking = false;
-
-                        EndPoint clientUserEP = new IPEndPoint(IPAddress.Any, 0);
-
-                        
-                        Console.WriteLine($"[UDP-USER] Cekam prvi UDP paket na {sessionUdpPort}...");
-                        bool handshakeOk = WaitForFirstUdpPacket(udpUserSocket, ref clientUserEP, 3000);
-
-                        if (!handshakeOk)
-                        {
-                            Console.WriteLine("[UDP-USER] Handshake timeout. Odjavljujem korisnika.");
-                            CleanupSession(ulogovanKorisnik, sessionUdpPort);
-                            continue;
-                        }
-
-                        Console.WriteLine($"[UDP-USER] Klijent UDP endpoint: {clientUserEP}");
-                        SendLineUdp(udpUserSocket, clientUserEP, "UDP kanal uspostavljen.");
-                        SendLineUdp(udpUserSocket, clientUserEP, "Komande: <Uredjaj> <funkcija:vrednost> | 'kraj' za izlaz");
-
-                        ispisListeUredjaja(ListaUredjaja, udpUserSocket, clientUserEP);
-
-                        
-                        Stopwatch idleSw = new Stopwatch();
-                        idleSw.Start();
-
-                        
-                        while (true)
-                        {
-                            // istek sesije (1 min bez poruke)
-                            if (idleSw.ElapsedMilliseconds >= SessionIdleMs)
-                            {
-                                try
-                                {
-                                    SendLineUdp(udpUserSocket, clientUserEP,
-                                        "SESSION_CLOSED (istek 1min neaktivnosti) - prijavi se ponovo.");
-                                }
-                                catch { }
-
-                                Console.WriteLine($"[SESSION] Korisnik '{ulogovanKorisnik.KorisnickoIme}' je odjavljen (istek sesije).");
-
-                                CleanupSession(ulogovanKorisnik, sessionUdpPort);
-
-                                
-                                try { udpUserSocket.Close(); } catch { }
-                                try { acceptedSocket.Close(); } catch { }
-
-                                break; // nazad na Accept()
-                            }
-
-                            
-                            if (!udpUserSocket.Poll(UdpPollTimeoutUs, SelectMode.SelectRead))
-                                continue;
-
-                            string komanda;
-                            try
-                            {
-                                komanda = ReceiveLineUdp(udpUserSocket, ref clientUserEP);
-                            }
-                            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
-                            {
-                                continue;
-                            }
-
-                            if (komanda == null)
-                                break;
-
-                            
-
-                            
-                            idleSw.Restart();
-
-                            if (komanda.Equals("kraj", StringComparison.OrdinalIgnoreCase))
-                            {
-                                try { SendLineUdp(udpUserSocket, clientUserEP, "Odjavljeni ste. Prijavite se ponovo."); } catch { }
-                                Console.WriteLine($"[LOGOUT] Korisnik '{ulogovanKorisnik.KorisnickoIme}' se odjavio (kraj).");
-
-                                CleanupSession(ulogovanKorisnik, sessionUdpPort);
-
-                                try { udpUserSocket.Close(); } catch { }
-                                try { acceptedSocket.Close(); } catch { }
-
-                                break; // nazad na Accept()
-                            }
-
-                            
-                            string[] delovi = komanda.Split(' ');
-                            if (delovi.Length != 2)
-                            {
-                                SendLineUdp(udpUserSocket, clientUserEP, "Pogresan format: <Uredjaj> <funkcija:vrednost>");
-                                continue;
-                            }
-
-                            string imeUredjaja = delovi[0];
-                            string[] fv = delovi[1].Split(':');
-                            if (fv.Length != 2)
-                            {
-                                SendLineUdp(udpUserSocket, clientUserEP, "Pogresan format funkcije: funkcija:vrednost");
-                                continue;
-                            }
-
-                            string funkcija = fv[0];
-                            string vrednost = fv[1];
-
-                            bool uredjajPronadjen = false;
-
-                            foreach (var u in ListaUredjaja)
-                            {
-                                if (u.ImeUredjaja.Equals(imeUredjaja, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    uredjajPronadjen = true;
-
-                                    if (u.Funkcije.ContainsKey(funkcija))
-                                    {
-                                        u.Funkcije[funkcija] = vrednost;
-
-                                        IPEndPoint deviceEP = new IPEndPoint(IPAddress.Loopback, u.Port);
-                                        string udpMsg = funkcija + ":" + vrednost;
-                                        byte[] data = Encoding.UTF8.GetBytes(udpMsg);
-
-                                        udpSocket.SendTo(data, deviceEP);
-
-                                        try
-                                        {
-                                            byte[] respBuf = new byte[2048];
-                                            EndPoint from = new IPEndPoint(IPAddress.Any, 0);
-                                            int respLen = udpSocket.ReceiveFrom(respBuf, ref from);
-                                            string respText = Encoding.UTF8.GetString(respBuf, 0, respLen);
-
-                                            SendLineUdp(udpUserSocket, clientUserEP, "ACK " + respText);
-                                        }
-                                        catch (SocketException)
-                                        {
-                                            SendLineUdp(udpUserSocket, clientUserEP, "ACK TIMEOUT (uredjaj ne odgovara)");
-                                        }
-                                    }
-                                    else
-                                    {
-                                        SendLineUdp(udpUserSocket, clientUserEP, $"Uredjaj nema funkciju: {funkcija}");
-                                    }
-
-                                    break;
-                                }
-                            }
-
-                            if (!uredjajPronadjen)
-                                SendLineUdp(udpUserSocket, clientUserEP, "Nepostojeci uredjaj");
-
-                            ispisListeUredjaja(ListaUredjaja, udpUserSocket, clientUserEP);
-                        }
+                        try { tcpClient.Close(); } catch { }
+                        RenderDashboard("LOGIN FAILED");
+                        continue;
                     }
-                    catch (SocketException ex)
-                    {
-                        Console.WriteLine("[ERROR] SocketException (client): " + ex.Message);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine("[ERROR] Exception (client): " + ex.Message);
-                    }
-                    finally
-                    {
-                        
-                        try
-                        {
-                            if (ulogovanKorisnik != null && ulogovanKorisnik.StatusPrijave && sessionUdpPort != 0)
-                            {
-                                Console.WriteLine($"[CLEANUP] Forsiram odjavu za {ulogovanKorisnik.KorisnickoIme} (finally).");
-                                CleanupSession(ulogovanKorisnik, sessionUdpPort);
-                            }
-                        }
-                        catch { }
 
-                        try { udpUserSocket?.Close(); } catch { }
-                        try { udpSocket?.Close(); } catch { }
-                        try { acceptedSocket?.Close(); } catch { }
+                    udpPort = DodeliUDPPort();
+                    user.StatusPrijave = true;
+                    user.Port = udpPort;
+
+                    LastUserActivity[user.KorisnickoIme] = DateTime.Now;
+
+                    SendLineTcp(tcpClient, "OK " + user.Ime + " " + user.Prezime + " UDPPORT " + udpPort);
+
+                    udpUser = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    udpUser.Bind(new IPEndPoint(IPAddress.Any, udpPort));
+                    udpUser.Blocking = false;
+
+                    EndPoint clientEP = new IPEndPoint(IPAddress.Any, 0);
+                    bool hs = WaitForFirstUdpPacket(udpUser, ref clientEP, 3000);
+                    if (!hs)
+                    {
+                        CleanupSession(user, udpPort);
+                        try { udpUser.Close(); } catch { }
+                        try { tcpClient.Close(); } catch { }
+                        RenderDashboard("UDP HANDSHAKE TIMEOUT");
+                        continue;
+                    }
+
+                    deviceSockets = new Dictionary<int, Socket>();
+                    deviceSocketList = new List<Socket>();
+                    foreach (var dev in ListaUredjaja)
+                    {
+                        Socket s = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                        s.Bind(new IPEndPoint(IPAddress.Any, 0));
+                        s.Blocking = false;
+                        deviceSockets[dev.Port] = s;
+                        deviceSocketList.Add(s);
+                    }
+
+                    SendDevicesTableUdp(udpUser, clientEP);
+                    RenderDashboard("LOGIN OK: " + user.KorisnickoIme);
+
+                    Stopwatch idle = Stopwatch.StartNew();
+                    Stopwatch dashSw = Stopwatch.StartNew();
+
+                    while (true)
+                    {
+                        if (dashSw.ElapsedMilliseconds >= 1000)
+                        {
+                            RenderDashboard("RUNNING");
+                            dashSw.Restart();
+                        }
+
+                        if (idle.ElapsedMilliseconds >= SessionIdleMs)
+                        {
+                            try { SendLineUdp(udpUser, clientEP, "SESSION_CLOSED"); } catch { }
+                            CleanupSession(user, udpPort);
+                            RenderDashboard("SESSION TIMEOUT: " + user.KorisnickoIme);
+                            break;
+                        }
+
+                        if (!udpUser.Poll(UdpPollTimeoutUs, SelectMode.SelectRead))
+                            continue;
+
+                        string cmd = ReceiveLineUdp(udpUser, ref clientEP);
+                        idle.Restart();
+                        LastUserActivity[user.KorisnickoIme] = DateTime.Now;
+
+                        if (cmd == "kraj")
+                        {
+                            CleanupSession(user, udpPort);
+                            RenderDashboard("LOGOUT: " + user.KorisnickoIme);
+                            break;
+                        }
+
+                        ObradiKomandu(cmd, user, udpUser, clientEP, deviceSockets, deviceSocketList);
+                    }
+                }
+                catch (SocketException ex)
+                {
+                    if (user != null && user.StatusPrijave && udpPort != 0) CleanupSession(user, udpPort);
+                    RenderDashboard("SOCKET ERROR: " + ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    if (user != null && user.StatusPrijave && udpPort != 0) CleanupSession(user, udpPort);
+                    RenderDashboard("ERROR: " + ex.Message);
+                }
+                finally
+                {
+                    try { udpUser?.Close(); } catch { }
+                    try { tcpClient?.Close(); } catch { }
+
+                    if (deviceSocketList != null)
+                    {
+                        foreach (var s in deviceSocketList)
+                        {
+                            try { s?.Close(); } catch { }
+                        }
                     }
                 }
             }
-            catch (SocketException ex)
-            {
-                Console.WriteLine("[ERROR] SocketException: " + ex.Message);
-            }
-            finally
-            {
-                try { serverSocket?.Close(); } catch { }
-            }
         }
 
-        private static bool WaitForFirstUdpPacket(Socket udpUserSocket, ref EndPoint clientUserEP, int maxWaitMs)
+        static void ObradiKomandu(
+            string cmd,
+            Korisnik user,
+            Socket udp,
+            EndPoint ep,
+            Dictionary<int, Socket> deviceSockets,
+            List<Socket> deviceSocketList)
         {
-            Stopwatch sw = Stopwatch.StartNew();
-            byte[] buf = new byte[2048];
-
-            while (sw.ElapsedMilliseconds < maxWaitMs)
+            string[] p = cmd.Split(' ');
+            if (p.Length != 2)
             {
-                if (udpUserSocket.Poll(200 * 1000, SelectMode.SelectRead)) // 200ms
+                SendLineUdp(udp, ep, "Pogresan format komande");
+                return;
+            }
+
+            string devName = p[0];
+            string[] fv = p[1].Split(':');
+            if (fv.Length != 2)
+            {
+                SendLineUdp(udp, ep, "Pogresan format funkcije");
+                return;
+            }
+
+            Uredjaj d = ListaUredjaja.FirstOrDefault(x => x.ImeUredjaja.Equals(devName, StringComparison.OrdinalIgnoreCase));
+            if (d == null)
+            {
+                SendLineUdp(udp, ep, "Nepostojeci uredjaj");
+                return;
+            }
+
+            string funkcija = fv[0];
+            string vrednost = fv[1];
+
+            if (!d.Funkcije.ContainsKey(funkcija))
+            {
+                SendLineUdp(udp, ep, "Uredjaj nema funkciju: " + funkcija);
+                return;
+            }
+
+            d.Funkcije[funkcija] = vrednost;
+            d.PoslednjaPromena = DateTime.Now;
+
+            SaveDevicesState();
+            Log(user.KorisnickoIme, d.ImeUredjaja, funkcija, vrednost);
+
+            IPEndPoint deviceEP = new IPEndPoint(IPAddress.Loopback, d.Port);
+            byte[] data = Encoding.UTF8.GetBytes(funkcija + ":" + vrednost);
+
+            Socket sendSock;
+            if (!deviceSockets.TryGetValue(d.Port, out sendSock))
+            {
+                SendLineUdp(udp, ep, "Greska: nema socketa za uredjaj");
+                return;
+            }
+
+            try { sendSock.SendTo(data, deviceEP); }
+            catch
+            {
+                SendLineUdp(udp, ep, "ACK TIMEOUT (uredjaj ne odgovara)");
+                SendDevicesTableUdp(udp, ep);
+                RenderDashboard("DEVICE SEND FAIL");
+                return;
+            }
+
+            string odgovorUredjaja = null;
+            byte[] buf = new byte[2048];
+            Stopwatch sw = Stopwatch.StartNew();
+
+            while (sw.ElapsedMilliseconds < 3000)
+            {
+                for (int i = 0; i < deviceSocketList.Count; i++)
                 {
+                    Socket s = deviceSocketList[i];
+                    if (!s.Poll(200 * 1000, SelectMode.SelectRead))
+                        continue;
+
+                    EndPoint from = new IPEndPoint(IPAddress.Any, 0);
+                    int len;
                     try
                     {
-                        udpUserSocket.ReceiveFrom(buf, ref clientUserEP);
-                        return true;
+                        len = s.ReceiveFrom(buf, ref from);
                     }
                     catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
                     {
-                        // ignore
+                        continue;
+                    }
+
+                    int fromPort = ((IPEndPoint)from).Port;
+                    if (fromPort != d.Port)
+                        continue;
+
+                    odgovorUredjaja = Encoding.UTF8.GetString(buf, 0, len).Trim();
+                    goto DONE_WAIT;
+                }
+            }
+
+        DONE_WAIT:
+            if (odgovorUredjaja == null)
+                SendLineUdp(udp, ep, "ACK TIMEOUT (uredjaj ne odgovara)");
+            else
+                SendLineUdp(udp, ep, odgovorUredjaja);
+
+            SendDevicesTableUdp(udp, ep);
+            RenderDashboard("CMD: " + user.KorisnickoIme + " -> " + d.ImeUredjaja + " " + funkcija + ":" + vrednost);
+        }
+
+        static void RenderDashboard(string status)
+        {
+            lock (ConsoleLock)
+            {
+                Console.Clear();
+                Console.WriteLine("CENTRALNI SERVER - STANJE SISTEMA");
+                Console.WriteLine("Vreme: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                Console.WriteLine("Status: " + status);
+                Console.WriteLine();
+
+                Console.WriteLine("AKTIVNI KORISNICI (UDP SESIJE)");
+                Console.WriteLine("KorisnickoIme | Ime Prezime | UDP Port | Poslednja aktivnost");
+                Console.WriteLine(new string('-', 78));
+
+                var aktivni = Korisnici.Where(k => k.StatusPrijave).ToList();
+                if (aktivni.Count == 0)
+                {
+                    Console.WriteLine("-");
+                }
+                else
+                {
+                    foreach (var k in aktivni)
+                    {
+                        DateTime last;
+                        string lastStr = LastUserActivity.TryGetValue(k.KorisnickoIme, out last)
+                            ? last.ToString("HH:mm:ss")
+                            : "-";
+                        Console.WriteLine($"{k.KorisnickoIme} | {k.Ime} {k.Prezime} | {k.Port} | {lastStr}");
+                    }
+                }
+
+                Console.WriteLine();
+                Console.WriteLine("STANJE UREDJAJA");
+                Console.WriteLine("Uredjaj | Port | Funkcije | Poslednja promena");
+                Console.WriteLine(new string('-', 78));
+
+                foreach (var d in ListaUredjaja)
+                {
+                    string funcs = d.Funkcije != null && d.Funkcije.Count > 0
+                        ? string.Join(", ", d.Funkcije.Select(x => x.Key + "=" + x.Value))
+                        : "-";
+                    string ts = d.PoslednjaPromena == default(DateTime)
+                        ? "-"
+                        : d.PoslednjaPromena.ToString("HH:mm:ss");
+                    Console.WriteLine($"{d.ImeUredjaja} | {d.Port} | {funcs} | {ts}");
+                }
+
+                Console.WriteLine();
+                Console.WriteLine("Log fajl: " + ActivityLogFile);
+                Console.WriteLine("State fajl: " + DevicesStateFile);
+            }
+        }
+
+        static void Log(string user, string dev, string f, string v)
+        {
+            try
+            {
+                File.AppendAllText(ActivityLogFile, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | {user} | {dev} | {f}:{v}\n");
+            }
+            catch { }
+        }
+
+        static void SaveDevicesState()
+        {
+            try
+            {
+                File.WriteAllText(DevicesStateFile, JsonConvert.SerializeObject(ListaUredjaja, Formatting.Indented));
+            }
+            catch { }
+        }
+
+        static void LoadDevicesState()
+        {
+            if (!File.Exists(DevicesStateFile)) return;
+
+            try
+            {
+                var loaded = JsonConvert.DeserializeObject<List<Uredjaj>>(File.ReadAllText(DevicesStateFile));
+                if (loaded == null || loaded.Count == 0) return;
+
+                foreach (var baseDev in ListaUredjaja)
+                {
+                    var match = loaded.FirstOrDefault(d => d.ImeUredjaja != null &&
+                                                          d.ImeUredjaja.Equals(baseDev.ImeUredjaja, StringComparison.OrdinalIgnoreCase));
+                    if (match != null && match.Funkcije != null && match.Funkcije.Count > 0)
+                    {
+                        baseDev.Funkcije = match.Funkcije;
+                        baseDev.PoslednjaPromena = match.PoslednjaPromena;
                     }
                 }
             }
-            return false;
+            catch { }
         }
 
-        private static void CleanupSession(Korisnik k, int udpPort)
+        static void SendDevicesTableUdp(Socket udp, EndPoint ep)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("IME | PORT | FUNKCIJE | POSLEDNJA PROMENA");
+            sb.AppendLine("------------------------------------------");
+
+            foreach (var d in ListaUredjaja)
+            {
+                sb.AppendLine($"{d.ImeUredjaja} | {d.Port} | " +
+                              string.Join(",", d.Funkcije.Select(x => x.Key + "=" + x.Value)) +
+                              " | " + d.PoslednjaPromena);
+            }
+
+            SendLineUdp(udp, ep, sb.ToString());
+        }
+
+        static Korisnik Login(Socket s)
+        {
+            SendLineTcp(s, "Username:");
+            string u = ReceiveLineTcp(s);
+
+            SendLineTcp(s, "Sifra:");
+            string p = ReceiveLineTcp(s);
+
+            var k = Korisnici.FirstOrDefault(x => x.KorisnickoIme == u && x.Lozinka == p);
+            return k;
+        }
+
+        static void CleanupSession(Korisnik k, int p)
         {
             try
             {
@@ -341,85 +412,64 @@ namespace Server
                     k.StatusPrijave = false;
                     k.Port = 0;
                 }
-                if (udpPort != 0)
-                {
-                    UsedUdpPorts.Remove(udpPort);
-                }
+                UsedUdpPorts.Remove(p);
             }
             catch { }
         }
 
-        private static void SendLineTcp(Socket socket, string message)
+        static int DodeliUDPPort()
         {
-            byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
-            socket.Send(data);
+            int p;
+            do { p = Rng.Next(UDPMin, UDPMax); } while (UsedUdpPorts.Contains(p));
+            UsedUdpPorts.Add(p);
+            return p;
         }
 
-        private static string ReceiveLineTcp(Socket socket)
+        static void SendLineTcp(Socket s, string m)
+        {
+            s.Send(Encoding.UTF8.GetBytes(m + "\r\n"));
+        }
+
+        static string ReceiveLineTcp(Socket s)
         {
             StringBuilder sb = new StringBuilder();
-            byte[] buffer = new byte[1];
-
-            while (true)
-            {
-                int bytesRead = socket.Receive(buffer);
-                if (bytesRead == 0)
-                    return null;
-
-                char c = (char)buffer[0];
-
-                if (c == '\n')
-                    break;
-
-                if (c != '\r')
-                    sb.Append(c);
-            }
-
+            byte[] b = new byte[1];
+            while (s.Receive(b) > 0 && b[0] != '\n')
+                if (b[0] != '\r') sb.Append((char)b[0]);
             return sb.ToString();
         }
 
-        private static void SendLineUdp(Socket udpSocket, EndPoint ep, string message)
+        static void SendLineUdp(Socket s, EndPoint ep, string m)
         {
-            byte[] data = Encoding.UTF8.GetBytes(message + "\r\n");
-            udpSocket.SendTo(data, ep);
+            s.SendTo(Encoding.UTF8.GetBytes(m + "\r\n"), ep);
         }
 
-        private static string ReceiveLineUdp(Socket udpSocket, ref EndPoint ep)
+        static string ReceiveLineUdp(Socket s, ref EndPoint ep)
         {
-            byte[] buf = new byte[4096];
-            int len = udpSocket.ReceiveFrom(buf, ref ep);
-            string text = Encoding.UTF8.GetString(buf, 0, len);
-            return text.TrimEnd('\r', '\n');
+            byte[] b = new byte[4096];
+            int l = s.ReceiveFrom(b, ref ep);
+            return Encoding.UTF8.GetString(b, 0, l).Trim();
         }
 
-        private static int DodeliUDPPort()
+        static bool WaitForFirstUdpPacket(Socket s, ref EndPoint ep, int ms)
         {
-            for (int i = 0; i < 5000; i++)
+            Stopwatch sw = Stopwatch.StartNew();
+            byte[] b = new byte[256];
+            while (sw.ElapsedMilliseconds < ms)
             {
-                int p = Rng.Next(UDPMin, UDPMax + 1);
-                if (!UsedUdpPorts.Contains(p))
+                if (s.Poll(200000, SelectMode.SelectRead))
                 {
-                    UsedUdpPorts.Add(p);
-                    return p;
+                    try
+                    {
+                        s.ReceiveFrom(b, ref ep);
+                        return true;
+                    }
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
+                    {
+                    }
                 }
             }
-            throw new Exception("Nema slobodnih UDP portova u opsegu.");
-        }
-
-        private static void ispisListeUredjaja(List<Uredjaj> listaZaIspis, Socket udpUserSocket, EndPoint clientEP)
-        {
-            int i = 1;
-            SendLineUdp(udpUserSocket, clientEP, "Lista uredjaja:");
-            foreach (Uredjaj u in listaZaIspis)
-            {
-                string ispis = i + ") " + u.ImeUredjaja + " " + u.Port + " ";
-                foreach (var par in u.Funkcije)
-                    ispis = ispis + par.Key + ":" + par.Value + " ";
-
-                SendLineUdp(udpUserSocket, clientEP, ispis);
-                i++;
-            }
-            SendLineUdp(udpUserSocket, clientEP, "Kraj liste uredjaja.");
+            return false;
         }
     }
 }
